@@ -1,4 +1,3 @@
-use ansi_escapes::{self, CursorBackward, CursorDown, CursorLeft, CursorPrevLine, CursorUp};
 use clap::Parser;
 use config::{self, Config, ConfigError, File, FileFormat};
 use dialoguer::Confirm;
@@ -7,9 +6,6 @@ use rand::seq::SliceRandom;
 use rand::{self, Rng};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use std::io::{stdout, Write};
-use std::thread;
-use std::time::Duration;
 use std::{fmt::Display, fs, process};
 use url::Url;
 
