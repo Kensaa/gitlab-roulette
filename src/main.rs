@@ -240,15 +240,15 @@ fn main() -> Result<(), ConfigError> {
     let members: Vec<GitlabProjectMember> =
         serde_json::from_str(&res).expect("failed to parse members");
 
-    let config_issue = config.get_array("issues");
-    let selected_issues = if let Ok(config_issue) = config_issue {
-        let config_issue: Vec<i64> = config_issue
+    let config_issues = config.get_array("issues");
+    let selected_issues = if let Ok(config_issues) = config_issues {
+        let config_issues: Vec<i64> = config_issues
             .into_iter()
             .map(|val| val.into_int().expect("provided issue id is not an int"))
             .collect();
         let selected_issues: Vec<&GitlabIssue> = issues
             .iter()
-            .filter(|issue| config_issue.contains(&(issue.iid as i64)))
+            .filter(|issue| config_issues.contains(&(issue.iid as i64)))
             .collect();
         selected_issues
     } else {
@@ -322,23 +322,32 @@ fn main() -> Result<(), ConfigError> {
         selected_issues
     };
 
-    let selected_members = MultiSelect::with_theme(&ColorfulTheme::default())
-        .with_prompt("Select all the members you want to asign the issues to:")
-        .items(&members)
-        .interact()
-        .unwrap();
-    let selected_members: Vec<&GitlabProjectMember> =
-        selected_members.into_iter().map(|i| &members[i]).collect();
+    let config_members = config.get_array("members");
 
-    let confirm = Confirm::with_theme(&ColorfulTheme::default())
-        .with_prompt("Do you want to continue ?")
-        .default(true)
-        .interact()
-        .unwrap();
+    let selected_members = if let Ok(config_members) = config_members {
+        let config_members: Vec<String> = config_members
+            .into_iter()
+            .map(|val| {
+                val.into_string()
+                    .expect("provided member username is not a string")
+            })
+            .collect();
+        let selected_members: Vec<&GitlabProjectMember> = members
+            .iter()
+            .filter(|member| config_members.contains(&(member.username)))
+            .collect();
+        selected_members
+    } else {
+        let selected_members = MultiSelect::with_theme(&ColorfulTheme::default())
+            .with_prompt("Select all the members you want to asign the issues to:")
+            .items(&members)
+            .interact()
+            .unwrap();
+        let selected_members: Vec<&GitlabProjectMember> =
+            selected_members.into_iter().map(|i| &members[i]).collect();
+        selected_members
+    };
 
-    if !confirm {
-        process::exit(0);
-    }
     let mut rng = rand::thread_rng();
     // selected_issues.shuffle(&mut rng);
     let issue_per_member = selected_issues.len() / selected_members.len();
