@@ -207,7 +207,7 @@ fn main() -> Result<(), ConfigError> {
 
     let res = client
         .get(format!(
-            "{}/api/v4/projects/{}/issues",
+            "{}/api/v4/projects/{}/issues?state=opened",
             gitlab_domain, project.id
         ))
         .header("PRIVATE-TOKEN", token.clone())
