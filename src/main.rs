@@ -289,6 +289,11 @@ fn main() -> Result<(), ConfigError> {
                     }
                 });
 
+                if milestones.len() == 0 {
+                    eprintln!("no milestone with opened issue, aborting");
+                    process::exit(1);
+                }
+
                 let selection = MultiSelect::with_theme(&ColorfulTheme::default())
                     .with_prompt("Select all the milestones that you want to use: ")
                     .items(&milestones)
