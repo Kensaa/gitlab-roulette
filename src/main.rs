@@ -12,19 +12,35 @@ use url::Url;
 #[derive(Parser, Debug)]
 #[command(name = "gitlab roulette")]
 struct Cli {
-    #[arg(short, long, help = "URL of the project")]
+    #[arg(id = "url", short, long, help = "URL of the project")]
     url: Option<String>,
 
-    #[arg(short, long, help = "Gitlab token to use to connect")]
+    #[arg(id = "token", short, long, help = "Gitlab token to use to connect")]
     token: Option<String>,
 
     #[arg(
-        short,
+        id = "config_file",
         long,
         help = "File to use as config",
         default_value = "./gitlab-roulette.toml"
     )]
     config_file: Option<String>,
+
+    #[arg(
+        id = "issue",
+        short,
+        long,
+        help = "The id of the issue you want to assign (can be used multiple times to assign multiple issues) (you will be prompted if this isn't specified)"
+    )]
+    issues: Option<Vec<i32>>,
+
+    #[arg(
+        id = "member",
+        short,
+        long,
+        help = "The username of the member you want to assign the issues to (can be used multiple times to specify multiple members) (you will be prompted if this isn't specified)"
+    )]
+    members: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -113,7 +129,9 @@ fn main() -> Result<(), ConfigError> {
     //  .add_async_source(...)
     builder = builder
         .set_override_option("url", cli.url)?
-        .set_override_option("token", cli.token)?;
+        .set_override_option("token", cli.token)?
+        .set_override_option("issues", cli.issues)?
+        .set_override_option("members", cli.members)?;
 
     let config = builder.build()?;
 
@@ -222,72 +240,86 @@ fn main() -> Result<(), ConfigError> {
     let members: Vec<GitlabProjectMember> =
         serde_json::from_str(&res).expect("failed to parse members");
 
-    let selection_types = vec![
-        IssueSelectionType::Milestone,
-        IssueSelectionType::Range,
-        IssueSelectionType::Manual,
-    ];
+    let config_issue = config.get_array("issues");
+    let selected_issues = if let Ok(config_issue) = config_issue {
+        let config_issue: Vec<i64> = config_issue
+            .into_iter()
+            .map(|val| val.into_int().expect("provided issue id is not an int"))
+            .collect();
+        let selected_issues: Vec<&GitlabIssue> = issues
+            .iter()
+            .filter(|issue| config_issue.contains(&(issue.iid as i64)))
+            .collect();
+        selected_issues
+    } else {
+        let selection_types = vec![
+            IssueSelectionType::Milestone,
+            IssueSelectionType::Range,
+            IssueSelectionType::Manual,
+        ];
 
-    let selection_type_res = Select::with_theme(&ColorfulTheme::default())
-        .with_prompt("Select the way you want to select the issues:")
-        .items(&selection_types)
-        .interact()
-        .unwrap();
+        let selection_type_res = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("Select the way you want to select the issues:")
+            .items(&selection_types)
+            .interact()
+            .unwrap();
 
-    let selection_type = &selection_types[selection_type_res];
+        let selection_type = &selection_types[selection_type_res];
 
-    let selected_issues: Vec<&GitlabIssue> = match selection_type {
-        IssueSelectionType::Manual => {
-            let selection = MultiSelect::with_theme(&ColorfulTheme::default())
-                .with_prompt("Select all the issues that you want to use: ")
-                .items(&issues)
-                .interact()
-                .unwrap();
+        let selected_issues: Vec<&GitlabIssue> = match selection_type {
+            IssueSelectionType::Manual => {
+                let selection = MultiSelect::with_theme(&ColorfulTheme::default())
+                    .with_prompt("Select all the issues that you want to use: ")
+                    .items(&issues)
+                    .interact()
+                    .unwrap();
 
-            let selected_issues: Vec<&GitlabIssue> =
-                selection.into_iter().map(|i| &issues[i]).collect();
+                let selected_issues: Vec<&GitlabIssue> =
+                    selection.into_iter().map(|i| &issues[i]).collect();
 
-            selected_issues
-        }
-        IssueSelectionType::Milestone => {
-            let mut milestones: Vec<&GitlabMilestone> = Vec::new();
-            issues.iter().for_each(|issue| {
-                if let Some(milestone) = &issue.milestone {
-                    if !milestones.contains(&milestone) {
-                        milestones.push(milestone);
+                selected_issues
+            }
+            IssueSelectionType::Milestone => {
+                let mut milestones: Vec<&GitlabMilestone> = Vec::new();
+                issues.iter().for_each(|issue| {
+                    if let Some(milestone) = &issue.milestone {
+                        if !milestones.contains(&milestone) {
+                            milestones.push(milestone);
+                        }
                     }
-                }
-            });
+                });
 
-            let selection = MultiSelect::with_theme(&ColorfulTheme::default())
-                .with_prompt("Select all the milestones that you want to use: ")
-                .items(&milestones)
-                .interact()
-                .unwrap();
+                let selection = MultiSelect::with_theme(&ColorfulTheme::default())
+                    .with_prompt("Select all the milestones that you want to use: ")
+                    .items(&milestones)
+                    .interact()
+                    .unwrap();
 
-            let selected_milestones: Vec<&GitlabMilestone> =
-                selection.into_iter().map(|i| milestones[i]).collect();
+                let selected_milestones: Vec<&GitlabMilestone> =
+                    selection.into_iter().map(|i| milestones[i]).collect();
 
-            let selected_issues: Vec<&GitlabIssue> = issues
-                .iter()
-                .filter(|issue| {
-                    issue.milestone.is_some()
-                        && selected_milestones.contains(&issue.milestone.as_ref().unwrap())
-                })
-                .collect();
+                let selected_issues: Vec<&GitlabIssue> = issues
+                    .iter()
+                    .filter(|issue| {
+                        issue.milestone.is_some()
+                            && selected_milestones.contains(&issue.milestone.as_ref().unwrap())
+                    })
+                    .collect();
 
-            selected_issues
-        }
-        IssueSelectionType::Range => {
-            let range_start = issue_id_select(&issues, "Enter the ID of the first issue:");
-            let range_end = issue_id_select(&issues, "Enter the ID of the last issue:");
+                selected_issues
+            }
+            IssueSelectionType::Range => {
+                let range_start = issue_id_select(&issues, "Enter the ID of the first issue:");
+                let range_end = issue_id_select(&issues, "Enter the ID of the last issue:");
 
-            let selected_issues: Vec<&GitlabIssue> = issues
-                .iter()
-                .filter(|issue| issue.id >= range_start && issue.id <= range_end)
-                .collect();
-            selected_issues
-        }
+                let selected_issues: Vec<&GitlabIssue> = issues
+                    .iter()
+                    .filter(|issue| issue.id >= range_start && issue.id <= range_end)
+                    .collect();
+                selected_issues
+            }
+        };
+        selected_issues
     };
 
     let selected_members = MultiSelect::with_theme(&ColorfulTheme::default())
