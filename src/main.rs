@@ -4,7 +4,6 @@ use dialoguer::Confirm;
 use dialoguer::{theme::ColorfulTheme, Input, MultiSelect, Select};
 use rand::seq::SliceRandom;
 use rand::{self, Rng};
-use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, fs, process};
 use url::Url;
@@ -173,17 +172,20 @@ fn main() -> Result<(), ConfigError> {
             gitlab_domain
         ))
         .header("PRIVATE-TOKEN", token.clone())
-        .send();
+        .send()
+        .expect("failed to execute request");
 
-    if res.is_err() {
-        eprintln!("failed to send request");
+    if !res.status().is_success() {
+        eprintln!(
+            "Failed to get the project list : {} ({})",
+            res.status().canonical_reason().unwrap(),
+            res.status().as_str()
+        );
         process::exit(1);
     }
 
-    let res = res.unwrap();
     let res = res.text().expect("failed to get response body");
-    let projects = serde_json::from_str::<Vec<GitlabProject>>(&res);
-    let projects = projects.expect("failed to parse json");
+    let projects = serde_json::from_str::<Vec<GitlabProject>>(&res).expect("failed to parse json");
 
     // try to find the project using URL
     let project = projects.iter().find(|p| p.web_url == url);
@@ -211,14 +213,18 @@ fn main() -> Result<(), ConfigError> {
             gitlab_domain, project.id
         ))
         .header("PRIVATE-TOKEN", token.clone())
-        .send();
+        .send()
+        .expect("failed to execute request");
 
-    if res.is_err() {
-        eprintln!("failed to send request");
+    if !res.status().is_success() {
+        eprintln!(
+            "Failed to get the issue list : {} ({})",
+            res.status().canonical_reason().unwrap(),
+            res.status().as_str()
+        );
         process::exit(1);
     }
 
-    let res = res.unwrap();
     let res = res.text().expect("failed to get response body");
     let issues = serde_json::from_str::<Vec<GitlabIssue>>(&res).expect("failed to parse issues");
 
@@ -228,14 +234,18 @@ fn main() -> Result<(), ConfigError> {
             gitlab_domain, project.id
         ))
         .header("PRIVATE-TOKEN", token.clone())
-        .send();
+        .send()
+        .expect("failed to execute request");
 
-    if res.is_err() {
-        eprintln!("failed to send request");
+    if !res.status().is_success() {
+        eprintln!(
+            "Failed to get the member list : {} ({})",
+            res.status().canonical_reason().unwrap(),
+            res.status().as_str()
+        );
         process::exit(1);
     }
 
-    let res = res.unwrap();
     let res = res.text().expect("failed to get response body");
     let members: Vec<GitlabProjectMember> =
         serde_json::from_str(&res).expect("failed to parse members");
@@ -390,16 +400,15 @@ fn main() -> Result<(), ConfigError> {
                 gitlab_domain, project.id, issue.iid, rand_member.id
             ))
             .header("PRIVATE-TOKEN", token.clone())
-            .send();
+            .send()
+            .expect("failed to execute request");
 
-        if res.is_err() {
-            eprintln!("failed to send request");
-            process::exit(1);
-        }
-
-        let res = res.unwrap();
-        if res.status() != StatusCode::OK {
-            eprintln!("failed to assign issue {}", issue);
+        if !res.status().is_success() {
+            eprintln!(
+                "Failed to assign an issue : {} ({})",
+                res.status().canonical_reason().unwrap(),
+                res.status().as_str()
+            );
             process::exit(1);
         }
     }
