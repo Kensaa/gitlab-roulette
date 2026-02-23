@@ -436,7 +436,7 @@ fn issue_id_select(issues: &Vec<GitlabIssue>, prompt: &str) -> i32 {
             let num = input.parse::<i32>();
             match num {
                 Ok(num) => {
-                    let issue = issues.iter().find(|issue| issue.id == num);
+                    let issue = issues.iter().find(|issue| issue.iid == num);
                     match issue {
                         Some(_) => Ok(()),
                         None => Err("Issue cannot be found"),
