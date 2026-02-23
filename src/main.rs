@@ -4,6 +4,7 @@ use dialoguer::Confirm;
 use dialoguer::{theme::ColorfulTheme, Input, MultiSelect, Select};
 use rand::seq::SliceRandom;
 use rand::{self, Rng};
+use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, fs, process};
 use url::Url;
@@ -116,6 +117,45 @@ impl PartialEq for GitlabMilestone {
     }
 }
 
+fn page_fetch<T>(client: &Client, url: String, token: &String) -> Vec<T>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let mut results = Vec::new();
+    let mut page = 1;
+    loop {
+        let res = client
+            .get(
+                Url::parse_with_params(
+                    &url,
+                    &[("per_page", "100"), ("page", page.to_string().as_str())],
+                )
+                .unwrap(),
+            )
+            .header("PRIVATE-TOKEN", token.clone())
+            .send()
+            .expect("failed to execute request");
+
+        if !res.status().is_success() {
+            eprintln!(
+                "Failed to get the issue list : {} ({})",
+                res.status().canonical_reason().unwrap(),
+                res.status().as_str()
+            );
+            process::exit(1);
+        }
+
+        let res = res.text().expect("failed to get response body");
+        let page_issues = serde_json::from_str::<Vec<T>>(&res).expect("failed to parse issues");
+
+        if page_issues.len() == 0 {
+            return results;
+        }
+        results.extend(page_issues);
+        page += 1;
+    }
+}
+
 fn main() -> Result<(), ConfigError> {
     let cli = Cli::parse();
 
@@ -166,26 +206,15 @@ fn main() -> Result<(), ConfigError> {
     let token = token.unwrap();
 
     let client = reqwest::blocking::Client::new();
-    let res = client
-        .get(format!(
+
+    let projects: Vec<GitlabProject> = page_fetch(
+        &client,
+        format!(
             "{}/api/v4/projects?membership=true&simple=true",
             gitlab_domain
-        ))
-        .header("PRIVATE-TOKEN", token.clone())
-        .send()
-        .expect("failed to execute request");
-
-    if !res.status().is_success() {
-        eprintln!(
-            "Failed to get the project list : {} ({})",
-            res.status().canonical_reason().unwrap(),
-            res.status().as_str()
-        );
-        process::exit(1);
-    }
-
-    let res = res.text().expect("failed to get response body");
-    let projects = serde_json::from_str::<Vec<GitlabProject>>(&res).expect("failed to parse json");
+        ),
+        &token,
+    );
 
     // try to find the project using URL
     let project = projects.iter().find(|p| p.web_url == url);
@@ -207,59 +236,20 @@ fn main() -> Result<(), ConfigError> {
         &projects[selection]
     };
 
-    let mut issues: Vec<GitlabIssue> = Vec::new();
-    let mut page = 1;
-    loop {
-        let res = client
-            .get(format!(
-                "{}/api/v4/projects/{}/issues?state=opened&per_page=100&page={}",
-                gitlab_domain, project.id, page
-            ))
-            .header("PRIVATE-TOKEN", token.clone())
-            .send()
-            .expect("failed to execute request");
-
-        if !res.status().is_success() {
-            eprintln!(
-                "Failed to get the issue list : {} ({})",
-                res.status().canonical_reason().unwrap(),
-                res.status().as_str()
-            );
-            process::exit(1);
-        }
-
-        let res = res.text().expect("failed to get response body");
-        let page_issues =
-            serde_json::from_str::<Vec<GitlabIssue>>(&res).expect("failed to parse issues");
-
-        if page_issues.len() == 0 {
-            break;
-        }
-        issues.extend(page_issues);
-        page += 1;
-    }
-
-    let res = client
-        .get(format!(
-            "{}/api/v4/projects/{}/members",
+    let issues: Vec<GitlabIssue> = page_fetch(
+        &client,
+        format!(
+            "{}/api/v4/projects/{}/issues?state=opened",
             gitlab_domain, project.id
-        ))
-        .header("PRIVATE-TOKEN", token.clone())
-        .send()
-        .expect("failed to execute request");
+        ),
+        &token,
+    );
 
-    if !res.status().is_success() {
-        eprintln!(
-            "Failed to get the member list : {} ({})",
-            res.status().canonical_reason().unwrap(),
-            res.status().as_str()
-        );
-        process::exit(1);
-    }
-
-    let res = res.text().expect("failed to get response body");
-    let members: Vec<GitlabProjectMember> =
-        serde_json::from_str(&res).expect("failed to parse members");
+    let members: Vec<GitlabProjectMember> = page_fetch(
+        &client,
+        format!("{}/api/v4/projects/{}/members", gitlab_domain, project.id),
+        &token,
+    );
 
     let config_issues = config.get_array("issues");
     let selected_issues = if let Ok(config_issues) = config_issues {
