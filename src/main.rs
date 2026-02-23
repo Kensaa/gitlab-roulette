@@ -6,6 +6,7 @@ use rand::seq::SliceRandom;
 use rand::{self, Rng};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::{fmt::Display, fs, process};
 use url::Url;
 
@@ -62,6 +63,7 @@ struct GitlabIssue {
     r#type: String,
     assignees: Vec<GitlabProjectMember>,
     milestone: Option<GitlabMilestone>,
+    labels: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -83,6 +85,7 @@ struct GitlabProjectMember {
 #[derive(Debug)]
 enum IssueSelectionType {
     Milestone,
+    Label,
     Range,
     Manual,
 }
@@ -267,6 +270,7 @@ fn main() -> Result<(), ConfigError> {
             IssueSelectionType::Milestone,
             IssueSelectionType::Range,
             IssueSelectionType::Manual,
+            IssueSelectionType::Label,
         ];
 
         let selection_type_res = Select::with_theme(&ColorfulTheme::default())
@@ -332,6 +336,34 @@ fn main() -> Result<(), ConfigError> {
                     .iter()
                     .filter(|issue| issue.iid >= range_start && issue.iid <= range_end)
                     .collect();
+                selected_issues
+            }
+            IssueSelectionType::Label => {
+                let mut labels: HashSet<String> = HashSet::new();
+                issues.iter().for_each(|issue| {
+                    labels.extend(issue.labels.clone());
+                });
+
+                if labels.len() == 0 {
+                    eprintln!("no label with opened issue, aborting");
+                    process::exit(1);
+                }
+
+                let labels: Vec<&String> = labels.iter().collect();
+                let selection = MultiSelect::with_theme(&ColorfulTheme::default())
+                    .with_prompt("Select all the labels that you want to use: ")
+                    .items(&labels)
+                    .interact()
+                    .unwrap();
+
+                let selected_labels: Vec<String> =
+                    selection.into_iter().map(|i| labels[i].clone()).collect();
+
+                let selected_issues: Vec<&GitlabIssue> = issues
+                    .iter()
+                    .filter(|issue| issue.labels.iter().any(|l| selected_labels.contains(&l)))
+                    .collect();
+
                 selected_issues
             }
         };
