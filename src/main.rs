@@ -340,7 +340,7 @@ fn main() -> Result<(), ConfigError> {
 
                 let selected_issues: Vec<&GitlabIssue> = issues
                     .iter()
-                    .filter(|issue| issue.id >= range_start && issue.id <= range_end)
+                    .filter(|issue| issue.iid >= range_start && issue.iid <= range_end)
                     .collect();
                 selected_issues
             }
