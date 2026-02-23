@@ -207,26 +207,37 @@ fn main() -> Result<(), ConfigError> {
         &projects[selection]
     };
 
-    let res = client
-        .get(format!(
-            "{}/api/v4/projects/{}/issues?state=opened",
-            gitlab_domain, project.id
-        ))
-        .header("PRIVATE-TOKEN", token.clone())
-        .send()
-        .expect("failed to execute request");
+    let mut issues: Vec<GitlabIssue> = Vec::new();
+    let mut page = 1;
+    loop {
+        let res = client
+            .get(format!(
+                "{}/api/v4/projects/{}/issues?state=opened&per_page=100&page={}",
+                gitlab_domain, project.id, page
+            ))
+            .header("PRIVATE-TOKEN", token.clone())
+            .send()
+            .expect("failed to execute request");
 
-    if !res.status().is_success() {
-        eprintln!(
-            "Failed to get the issue list : {} ({})",
-            res.status().canonical_reason().unwrap(),
-            res.status().as_str()
-        );
-        process::exit(1);
+        if !res.status().is_success() {
+            eprintln!(
+                "Failed to get the issue list : {} ({})",
+                res.status().canonical_reason().unwrap(),
+                res.status().as_str()
+            );
+            process::exit(1);
+        }
+
+        let res = res.text().expect("failed to get response body");
+        let page_issues =
+            serde_json::from_str::<Vec<GitlabIssue>>(&res).expect("failed to parse issues");
+
+        if page_issues.len() == 0 {
+            break;
+        }
+        issues.extend(page_issues);
+        page += 1;
     }
-
-    let res = res.text().expect("failed to get response body");
-    let issues = serde_json::from_str::<Vec<GitlabIssue>>(&res).expect("failed to parse issues");
 
     let res = client
         .get(format!(
